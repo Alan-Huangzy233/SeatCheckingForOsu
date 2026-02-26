@@ -1,4 +1,4 @@
-// checkOnlineAvailability_Full_EN.js
+// checkOnlineAvailability_Multi_EN.js
 
 import fetch from "node-fetch";
 import chalk from "chalk";
@@ -7,15 +7,15 @@ import dotenv from "dotenv";
 
 dotenv.config({ path: './email_info.env' });
 
-// ================= Configuration Area =================
-const TERM = "202503";            // Term (e.g. YYYY+Term, eg. 202603, Fall-01, Winter-02, Spring-03, Summer-04)
-const SUBJECT = "CS";             // Subject
-const COURSE_NUMBER = "123";      // Course Number
+// ================= CONFIGURATION =================
+const TERM = "202603";            // Term (e.g., YYYY+Term, like 202603)
 
-// NEW: Course Type Mode Toggle
-// true  = Monitor Online courses only (Ecampus / Online)
-// false = Monitor Offline courses only (Corvallis campus in-person classes)
-const CHECK_ONLINE_ONLY = false;   
+// Multi-course monitoring list
+// You can add as many courses as you want to monitor here
+const COURSES_TO_MONITOR = [
+    { subject: "CS", courseNumber: "175", checkOnlineOnly: true },  // Monitor CS 175 (Online)
+    { subject: "CS", courseNumber: "312", checkOnlineOnly: true },  // Monitor CS 312 (Online)
+];
 
 // Base URL Configuration
 const BASE_URL = "https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb";
@@ -30,7 +30,7 @@ const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 let dynamicCookie = "";
 let dynamicToken = "";
 
-// ================= Email Configuration =================
+// ================= EMAIL CONFIGURATION =================
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT),
@@ -38,28 +38,32 @@ const transporter = nodemailer.createTransport({
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
 });
 
-const COOLDOWN_MS = 3600_000; // 1-hour cooldown
-let lastMailTS = 0;
+const COOLDOWN_MS = 3600_000; // 1 hour cooldown
+// Record cooldown times separately for each course
+const lastMailTSMap = new Map(); 
 
-async function sendEmailAlert(subject, htmlBody) {
+async function sendEmailAlert(courseKey, subject, htmlBody) {
     const now = Date.now();
-    if (now - lastMailTS < COOLDOWN_MS) {
-        console.log(chalk.blue(`Cooldown active: Only ${((now - lastMailTS) / 1000).toFixed(1)}s since the last email.`));
+    const lastTS = lastMailTSMap.get(courseKey) || 0;
+    
+    if (now - lastTS < COOLDOWN_MS) {
+        console.log(chalk.blue(`[${courseKey}] Cooldown: Only ${((now - lastTS) / 1000).toFixed(1)}s since last email alert.`));
         return;
     }
+    
     try {
         const info = await transporter.sendMail({ from: process.env.MAIL_FROM, to: process.env.MAIL_TO, subject, html: htmlBody });
-        lastMailTS = now;
-        console.log(chalk.green(`Alert email sent successfully, MessageID: ${info.messageId}`));
+        lastMailTSMap.set(courseKey, now); // Record the send time for this specific course
+        console.log(chalk.green(`[${courseKey}] Alert email sent, MessageID: ${info.messageId}`));
     } catch (err) {
-        console.error(chalk.red(`Failed to send email: ${err.message}`));
+        console.error(chalk.red(`[${courseKey}] Failed to send email: ${err.message}`));
     }
 }
 
-// ================= Core Logic =================
+// ================= CORE LOGIC =================
 
 async function refreshSession() {
-    console.log(chalk.blue("Fetching the latest Cookie and Token..."));
+    console.log(chalk.blue("Fetching latest Cookie and Token..."));
     try {
         const res = await fetch(START_URL, { headers: { "User-Agent": USER_AGENT } });
         let cookies = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : (res.headers.raw()['set-cookie'] || []);
@@ -83,7 +87,7 @@ async function refreshSession() {
         if (!termRes.ok) throw new Error(`Failed to bind term: ${termRes.status}`);
         console.log(chalk.green(`Session initialized successfully! Token: ${dynamicToken.substring(0, 8)}...`));
     } catch (e) {
-        console.error(chalk.red(`Failed to fetch credentials: ${e.message}`));
+        console.error(chalk.red(`Failed to auto-fetch credentials: ${e.message}`));
     }
 }
 
@@ -101,12 +105,13 @@ async function resetSearch() {
     } catch (e) { }
 }
 
-async function fetchCourseData(isRetry = false) {
+// Accept subject and courseNumber as parameters
+async function fetchCourseData(subject, courseNumber, isRetry = false) {
     if (!dynamicCookie || !dynamicToken) await refreshSession();
     await resetSearch();
 
     const params = new URLSearchParams({
-        txt_subject: SUBJECT, txt_courseNumber: COURSE_NUMBER, txt_term: TERM,
+        txt_subject: subject, txt_courseNumber: courseNumber, txt_term: TERM,
         startDatepicker: "", endDatepicker: "", uniqueSessionId: Date.now(),
         pageOffset: "0", pageMaxSize: "50", sortColumn: "subjectDescription", sortDirection: "asc"
     });
@@ -121,7 +126,7 @@ async function fetchCourseData(isRetry = false) {
     });
 
     if ((res.status === 401 || res.status === 403 || res.status === 400) && !isRetry) {
-        await refreshSession(); return fetchCourseData(true);
+        await refreshSession(); return fetchCourseData(subject, courseNumber, true);
     }
     if (!res.ok) throw new Error(`API HTTP ${res.status}`);
     return await res.json();
@@ -149,76 +154,67 @@ async function fetchRestrictions(crn, isRetry = false) {
     return await res.text();
 }
 
-async function checkPerfectSection() {
-    const modeText = CHECK_ONLINE_ONLY ? "[Online]" : "[Offline]";
+// Accept course object as parameter
+async function checkPerfectSection(course) {
+    const { subject, courseNumber, checkOnlineOnly } = course;
+    const modeText = checkOnlineOnly ? "[Online]" : "[In-Person]";
+    const courseKey = `${subject}_${courseNumber}_${checkOnlineOnly ? 'Online' : 'InPerson'}`;
+    
     try {
-        const json = await fetchCourseData();
+        const json = await fetchCourseData(subject, courseNumber);
         if (!json || !json.success || !json.data) return;
 
-        // 1. Find available courses based on mode
         const availableCourses = json.data.filter(c => {
             const isOnlineSchedule = c.scheduleTypeDescription === "Online";
             const isEcampus = c.campusDescription && c.campusDescription.includes("Ecampus");
             const isOnlineCourse = isOnlineSchedule || isEcampus;
-            
-            // Get Section number (usually sequenceNumber in Banner)
             const sectionNum = c.sequenceNumber || ""; 
 
-            // Filter courses based on CHECK_ONLINE_ONLY flag
-            if (CHECK_ONLINE_ONLY) {
-                // [Online Mode]
+            if (checkOnlineOnly) {
                 if (!isOnlineCourse) return false; 
             } else {
-                // [Offline Mode]
-                if (isOnlineCourse) return false; // If it's an online course, exclude it
-                // NEW: Ensure offline course sections start with "0" (Corvallis main campus)
+                if (isOnlineCourse) return false; 
                 if (!sectionNum.startsWith("0")) return false; 
             }
 
-            // (If you only want real seats and not waitlist, remove || c.waitAvailable > 0)
             const hasSeats = c.seatsAvailable > 0 || c.waitAvailable > 0; 
             return hasSeats;
         });
 
         if (availableCourses.length === 0) {
-            console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] Scanning ${SUBJECT} ${COURSE_NUMBER} ${modeText}, no available seats...`));
+            console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] Scanning ${subject} ${courseNumber} ${modeText}... No seats available currently.`));
             return;
         }
 
-        // 2. Further check restrictions for available courses (Blacklist mode)
         const perfectCourses = [];
-        
-        // If any of the following keywords appear in the HTML, the course will be blocked
         const restrictionBlacklist = [
             "Dist. Degree Corvallis Student(DSC)",
             "Oregon State - Corvallis (C)"
         ];
 
-        for (const course of availableCourses) {
+        for (const c of availableCourses) {
             try {
-                const html = await fetchRestrictions(course.courseReferenceNumber);
-                
+                const html = await fetchRestrictions(c.courseReferenceNumber);
                 let foundRestriction = null;
                 for (const keyword of restrictionBlacklist) {
                     if (html.includes(keyword)) {
                         foundRestriction = keyword;
-                        break; // Hit blacklist, break loop
+                        break;
                     }
                 }
 
                 if (!foundRestriction) {
-                    perfectCourses.push(course); // Has seats AND no blacklist restrictions!
+                    perfectCourses.push(c);
                 } else {
-                    console.log(chalk.yellow(`CRN ${course.courseReferenceNumber} has seats, but blocked: Detected "${foundRestriction}"`));
+                    console.log(chalk.yellow(`[${subject} ${courseNumber}] CRN ${c.courseReferenceNumber} has seats, but was blocked: Detected "${foundRestriction}" restriction.`));
                 }
             } catch (err) {
-                console.error(chalk.red(`Failed to fetch restrictions for CRN ${course.courseReferenceNumber}: ${err.message}`));
+                console.error(chalk.red(`Failed to fetch restrictions for CRN ${c.courseReferenceNumber}: ${err.message}`));
             }
         }
 
-        // 3. Finally, send email
         if (perfectCourses.length > 0) {
-            console.log(chalk.green(`Found ${perfectCourses.length} perfect ${modeText} option(s) (Available seats + No restrictions)!`));
+            console.log(chalk.green(`[${subject} ${courseNumber}] Found ${perfectCourses.length} perfect ${modeText} option(s) with available seats and NO restrictions!`));
 
             let detailsHtml = perfectCourses.map(c => `
                 <li style="margin-bottom: 10px;">
@@ -230,26 +226,40 @@ async function checkPerfectSection() {
                 </li>
             `).join("");
 
-            const subject = `Found open and unrestricted ${SUBJECT} ${COURSE_NUMBER} ${modeText}`;
+            const mailSubject = `Available seats found for ${subject} ${courseNumber} ${modeText} (No Restrictions)`;
             const body = `
-                <h2>Found immediately available ${modeText} sections for ${SUBJECT} ${COURSE_NUMBER}</h2>
-                <p>The following section(s) have open seats and <b>NO DSC or Corvallis campus restrictions detected</b>:</p>
+                <h2>Found ${modeText} options for ${subject} ${courseNumber} that you can register for immediately!</h2>
+                <p>The following sections have seats available and <b>NO DSC or Corvallis campus restrictions detected</b>:</p>
                 <ul>${detailsHtml}</ul>
-                <p>Please register as soon as possible!</p>
+                <p>Please log in and register ASAP!</p>
             `;
-            await sendEmailAlert(subject, body);
+            await sendEmailAlert(courseKey, mailSubject, body);
         }
 
     } catch (error) {
-        console.error(chalk.red(`Comprehensive check error: ${error.message}`));
+        console.error(chalk.red(`[${subject} ${courseNumber}] Scan encountered an error: ${error.message}`));
     }
 }
 
-// ================= Program Initialization =================
+// Sequentially poll all courses
+async function monitorAllCourses() {
+    console.log(chalk.cyan(`\n--- Starting a new full scan (${new Date().toLocaleTimeString()}) ---`));
+    
+    for (const course of COURSES_TO_MONITOR) {
+        await checkPerfectSection(course);
+        // Wait 2 seconds between checking each course to prevent server disconnects from rapid requests
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    // Wait 15 seconds after a full round before triggering the next round 
+    // (using recursive setTimeout instead of setInterval to prevent overlapping due to network lag)
+    setTimeout(monitorAllCourses, 15_000);
+}
+
+// ================= START PROGRAM =================
 (async () => {
-    const modeText = CHECK_ONLINE_ONLY ? "[Online]" : "[Offline]";
-    console.log(chalk.cyan(`Starting comprehensive monitoring for ${SUBJECT} ${COURSE_NUMBER} ${modeText} (Seats + DSC/Campus Restrictions)...`));
+    console.log(chalk.blue("Disclaimer: This program is for educational and research purposes only. Do not use for any commercial or illegal activities."));
+    console.log(chalk.magenta(`Starting multi-course monitor... Monitoring ${COURSES_TO_MONITOR.length} course(s) in total.`));
     await refreshSession();
-    await checkPerfectSection();
-    setInterval(checkPerfectSection, 15_000); 
+    await monitorAllCourses(); 
 })();

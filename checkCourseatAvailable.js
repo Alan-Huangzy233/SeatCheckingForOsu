@@ -1,4 +1,4 @@
-// checkOnlineAvailability_Full_CN.js
+// checkOnlineAvailability_Multi.js
 
 import fetch from "node-fetch";
 import chalk from "chalk";
@@ -8,14 +8,14 @@ import dotenv from "dotenv";
 dotenv.config({ path: './email_info.env' });
 
 // ================= 配置区域 =================
-const TERM = "202603";            // 学期 (如 YYYY+Term, eg. 202603, Fall-01, Winter-02, Spring-03, Summer-04)
-const SUBJECT = "CS";             // 科目
-const COURSE_NUMBER = "123";      // 课号
+const TERM = "202603";            // 学期 (如 YYYY+Term, eg. 202603)
 
-// 新增：课程类型模式切换
-// true  = 仅监控网课 (Ecampus / Online)
-// false = 仅监控线下课 (Corvallis 本校区实体课)
-const CHECK_ONLINE_ONLY = false;   
+// 多课程监控列表
+// 你可以在这里无限添加你想监控的课程
+const COURSES_TO_MONITOR = [
+    { subject: "CS", courseNumber: "123", checkOnlineOnly: false }, // 监控 CS 123 线下课
+    { subject: "CS", courseNumber: "456", checkOnlineOnly: true },  // 监控 CS 161 网课
+];
 
 // 基础 URL 配置
 const BASE_URL = "https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb";
@@ -39,20 +39,24 @@ const transporter = nodemailer.createTransport({
 });
 
 const COOLDOWN_MS = 3600_000; // 1 小时冷却
-let lastMailTS = 0;
+// 为每门课单独记录冷却时间
+const lastMailTSMap = new Map(); 
 
-async function sendEmailAlert(subject, htmlBody) {
+async function sendEmailAlert(courseKey, subject, htmlBody) {
     const now = Date.now();
-    if (now - lastMailTS < COOLDOWN_MS) {
-        console.log(chalk.blue(`冷却中：距离上次邮件只有 ${((now - lastMailTS) / 1000).toFixed(1)}s`));
+    const lastTS = lastMailTSMap.get(courseKey) || 0;
+    
+    if (now - lastTS < COOLDOWN_MS) {
+        console.log(chalk.blue(`[${courseKey}] 冷却中：距离上次邮件只有 ${((now - lastTS) / 1000).toFixed(1)}s`));
         return;
     }
+    
     try {
         const info = await transporter.sendMail({ from: process.env.MAIL_FROM, to: process.env.MAIL_TO, subject, html: htmlBody });
-        lastMailTS = now;
-        console.log(chalk.green(`提醒邮件已发送，MessageID: ${info.messageId}`));
+        lastMailTSMap.set(courseKey, now); // 记录这门课的发送时间
+        console.log(chalk.green(`[${courseKey}] 提醒邮件已发送，MessageID: ${info.messageId}`));
     } catch (err) {
-        console.error(chalk.red(`邮件发送失败: ${err.message}`));
+        console.error(chalk.red(`[${courseKey}] 邮件发送失败: ${err.message}`));
     }
 }
 
@@ -101,12 +105,13 @@ async function resetSearch() {
     } catch (e) { }
 }
 
-async function fetchCourseData(isRetry = false) {
+// 接收 subject 和 courseNumber 作为参数
+async function fetchCourseData(subject, courseNumber, isRetry = false) {
     if (!dynamicCookie || !dynamicToken) await refreshSession();
     await resetSearch();
 
     const params = new URLSearchParams({
-        txt_subject: SUBJECT, txt_courseNumber: COURSE_NUMBER, txt_term: TERM,
+        txt_subject: subject, txt_courseNumber: courseNumber, txt_term: TERM,
         startDatepicker: "", endDatepicker: "", uniqueSessionId: Date.now(),
         pageOffset: "0", pageMaxSize: "50", sortColumn: "subjectDescription", sortDirection: "asc"
     });
@@ -121,7 +126,7 @@ async function fetchCourseData(isRetry = false) {
     });
 
     if ((res.status === 401 || res.status === 403 || res.status === 400) && !isRetry) {
-        await refreshSession(); return fetchCourseData(true);
+        await refreshSession(); return fetchCourseData(subject, courseNumber, true);
     }
     if (!res.ok) throw new Error(`API HTTP ${res.status}`);
     return await res.json();
@@ -149,76 +154,67 @@ async function fetchRestrictions(crn, isRetry = false) {
     return await res.text();
 }
 
-async function checkPerfectSection() {
-    const modeText = CHECK_ONLINE_ONLY ? "【网课】" : "【线下课】";
+// 接收 course 对象作为参数
+async function checkPerfectSection(course) {
+    const { subject, courseNumber, checkOnlineOnly } = course;
+    const modeText = checkOnlineOnly ? "【网课】" : "【线下课】";
+    const courseKey = `${subject}_${courseNumber}_${checkOnlineOnly ? 'Online' : 'InPerson'}`;
+    
     try {
-        const json = await fetchCourseData();
+        const json = await fetchCourseData(subject, courseNumber);
         if (!json || !json.success || !json.data) return;
 
-        // 1. 根据模式寻找有座位的课
         const availableCourses = json.data.filter(c => {
             const isOnlineSchedule = c.scheduleTypeDescription === "Online";
             const isEcampus = c.campusDescription && c.campusDescription.includes("Ecampus");
             const isOnlineCourse = isOnlineSchedule || isEcampus;
-            
-            // 获取 Section 编号 (Banner 系统中通常叫 sequenceNumber)
             const sectionNum = c.sequenceNumber || ""; 
 
-            // 根据 CHECK_ONLINE_ONLY 标志过滤课程
-            if (CHECK_ONLINE_ONLY) {
-                // 【网课模式】
+            if (checkOnlineOnly) {
                 if (!isOnlineCourse) return false; 
             } else {
-                // 【线下课模式】
-                if (isOnlineCourse) return false; // 是网课 -> 剔除
-                // 新增：确保线下课的 Section 是以 "0" 开头的 (即 Corvallis 主校区)
+                if (isOnlineCourse) return false; 
                 if (!sectionNum.startsWith("0")) return false; 
             }
 
-            // (如果你只想查真实座位，不想查 Waitlist，可以把后面的 || c.waitAvailable > 0 删掉)
             const hasSeats = c.seatsAvailable > 0 || c.waitAvailable > 0; 
             return hasSeats;
         });
 
         if (availableCourses.length === 0) {
-            console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] 扫描 ${SUBJECT} ${COURSE_NUMBER} ${modeText}，暂无空位...`));
+            console.log(chalk.gray(`[${new Date().toLocaleTimeString()}] 扫描 ${subject} ${courseNumber} ${modeText}，暂无空位...`));
             return;
         }
 
-        // 2. 针对有座位的课，进一步检查限制 (黑名单模式)
         const perfectCourses = [];
-        
-        // 只要 HTML 里出现以下任何一个关键词，该课程就会被拦截
         const restrictionBlacklist = [
             "Dist. Degree Corvallis Student(DSC)",
             "Oregon State - Corvallis (C)"
         ];
 
-        for (const course of availableCourses) {
+        for (const c of availableCourses) {
             try {
-                const html = await fetchRestrictions(course.courseReferenceNumber);
-                
+                const html = await fetchRestrictions(c.courseReferenceNumber);
                 let foundRestriction = null;
                 for (const keyword of restrictionBlacklist) {
                     if (html.includes(keyword)) {
                         foundRestriction = keyword;
-                        break; // 命中黑名单，直接跳出循环
+                        break;
                     }
                 }
 
                 if (!foundRestriction) {
-                    perfectCourses.push(course); // 既有座，又没有任何黑名单限制！
+                    perfectCourses.push(c);
                 } else {
-                    console.log(chalk.yellow(`CRN ${course.courseReferenceNumber} 有空位，但被拦截: 检测到 “${foundRestriction}”`));
+                    console.log(chalk.yellow(`[${subject} ${courseNumber}] CRN ${c.courseReferenceNumber} 有空位，但被拦截: 检测到 “${foundRestriction}”`));
                 }
             } catch (err) {
-                console.error(chalk.red(`获取 CRN ${course.courseReferenceNumber} 的限制失败: ${err.message}`));
+                console.error(chalk.red(`获取 CRN ${c.courseReferenceNumber} 的限制失败: ${err.message}`));
             }
         }
 
-        // 3. 最终发送邮件
         if (perfectCourses.length > 0) {
-            console.log(chalk.green(`发现 ${perfectCourses.length} 个【有空位且无任何限制】的完美 ${modeText} 选项！`));
+            console.log(chalk.green(`[${subject} ${courseNumber}] 发现 ${perfectCourses.length} 个【有空位且无任何限制】的完美 ${modeText} 选项！`));
 
             let detailsHtml = perfectCourses.map(c => `
                 <li style="margin-bottom: 10px;">
@@ -230,26 +226,39 @@ async function checkPerfectSection() {
                 </li>
             `).join("");
 
-            const subject = `发现无限制且有空位的 ${SUBJECT} ${COURSE_NUMBER} ${modeText}`;
+            const mailSubject = `发现无限制且有空位的 ${subject} ${courseNumber} ${modeText}`;
             const body = `
-                <h2>${SUBJECT} ${COURSE_NUMBER} 发现了可以立刻选的 ${modeText} 选项</h2>
+                <h2>${subject} ${courseNumber} 发现了可以立刻选的 ${modeText} 选项</h2>
                 <p>以下 Section 既有空位，也<b>未检测到 DSC 或 Corvallis 本校区限制</b>：</p>
                 <ul>${detailsHtml}</ul>
                 <p>请尽快注册！</p>
             `;
-            await sendEmailAlert(subject, body);
+            await sendEmailAlert(courseKey, mailSubject, body);
         }
 
     } catch (error) {
-        console.error(chalk.red(`综合检测出错: ${error.message}`));
+        console.error(chalk.red(`[${subject} ${courseNumber}] 检测出错: ${error.message}`));
     }
+}
+
+// 顺序轮询所有课程
+async function monitorAllCourses() {
+    console.log(chalk.cyan(`\n--- 开始新一轮全量扫描 (${new Date().toLocaleTimeString()}) ---`));
+    
+    for (const course of COURSES_TO_MONITOR) {
+        await checkPerfectSection(course);
+        // 为了防止请求过快被服务器断开，每查完一门课稍微等 2 秒
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    // 一轮结束后，等待 15 秒再次触发（使用递归 setTimeout 代替 setInterval，防止网络卡顿导致的并发重叠）
+    setTimeout(monitorAllCourses, 15_000);
 }
 
 // ================= 启动程序 =================
 (async () => {
-    const modeText = CHECK_ONLINE_ONLY ? "【网课】" : "【线下课】";
-    console.log(chalk.cyan(`开始综合监控 ${SUBJECT} ${COURSE_NUMBER} ${modeText} (空位 + DSC/Campus 限制)...`));
+    console.log(chalk.blue("免责提示：本程序仅用于学习和研究目的，请勿用于任何商业或非法用途。"));
+    console.log(chalk.magenta(`启动多课程监控，共监控 ${COURSES_TO_MONITOR.length} 门课程...`));
     await refreshSession();
-    await checkPerfectSection();
-    setInterval(checkPerfectSection, 15_000); 
+    await monitorAllCourses(); 
 })();
