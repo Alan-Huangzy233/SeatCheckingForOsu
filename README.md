@@ -67,7 +67,7 @@ const CHECK_ONLINE_ONLY = false;
 
 ### 5. 运行脚本 (Run)
 ```bash
-node checkOnlineAvailability_Full.js
+node checkCourseatAvailable.js
 ```
 脚本启动后，会在控制台输出当前的监控模式，并默认每隔 15 秒扫描一次 OSU 系统。
 
@@ -150,7 +150,7 @@ const CHECK_ONLINE_ONLY = false;
 
 ### 5. Run the Script
 ```bash
-node checkOnlineAvailability_Full.js
+node ENcheckCourseSeatAvailable.js
 ```
 Once started, the script will output the current monitoring mode to the console and begin scanning the OSU system every 15 seconds by default.
 
