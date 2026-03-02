@@ -231,7 +231,7 @@ async function checkPerfectSection(course) {
                 <h2>Found ${modeText} options for ${subject} ${courseNumber} that you can register for immediately!</h2>
                 <p>The following sections have seats available and <b>NO DSC or Corvallis campus restrictions detected</b>:</p>
                 <ul>${detailsHtml}</ul>
-                <p>Please log in and register ASAP!</p>
+                <p>Please head to the <a href="https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb/registration#">OSU Registration System</a> to complete your registration ASAP!</p>
             `;
             await sendEmailAlert(courseKey, mailSubject, body);
         }
