@@ -2,7 +2,7 @@
 
 [English Version Below](#english-version)
 
-这是一个专为 Oregon State University (OSU) 学生设计的自动化选课监控工具。该脚本会持续监控指定课程的座位可用性，并在发现有空位且无选课限制时，自动发送邮件提醒，且**无需登录**！
+这是一个专为 Oregon State University (OSU) 学生设计的自动化选课监控工具。该脚本会持续监控指定课程的座位可用性，并在发现有空位且无选课限制时，自动发送邮件提醒，且**无需登录OSU账号**！
 
 ## 核心功能 (Features)
 
@@ -85,7 +85,7 @@ node checkCourseatAvailable.js
 
 # OSU Course Monitor (English Version)
 
-An automated course registration monitoring tool designed for Oregon State University (OSU) students. This script continuously monitors the seat availability of specified courses and automatically sends an email alert when it finds an open seat with no registration restrictions—**and absolutely no login required!**
+An automated course registration monitoring tool designed for Oregon State University (OSU) students. This script continuously monitors the seat availability of specified courses and automatically sends an email alert when it finds an open seat with no registration restrictions—**and absolutely no OSU account login required!**
 
 ## Features
 
