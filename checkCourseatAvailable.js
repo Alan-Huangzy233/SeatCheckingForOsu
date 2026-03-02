@@ -231,7 +231,7 @@ async function checkPerfectSection(course) {
                 <h2>${subject} ${courseNumber} 发现了可以立刻选的 ${modeText} 选项</h2>
                 <p>以下 Section 既有空位，也<b>未检测到 DSC 或 Corvallis 本校区限制</b>：</p>
                 <ul>${detailsHtml}</ul>
-                <p>请尽快注册！</p>
+                <p>请尽快前往 <a href="https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb/registration#">OSU 选课系统</a> 完成注册！</p>
             `;
             await sendEmailAlert(courseKey, mailSubject, body);
         }
