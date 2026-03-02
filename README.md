@@ -37,16 +37,16 @@ npm install
 ```env
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
-SMTP_USER=你的发件邮箱@gmail.com
-SMTP_PASS=你的专用密码
-MAIL_FROM=你的发件邮箱@gmail.com
-MAIL_TO=接收提醒的邮箱@xxx.com
+SMTP_USER=[替换为你的发件邮箱@gmail.com
+SMTP_PASS=[替换为你的专用密码]
+MAIL_FROM=[替换为你的发件邮箱]@gmail.com
+MAIL_TO=[替换为接收提醒的邮箱]@xxx.com
 ```
 
 **如何获取 Gmail 的 SMTP_PASS (App Password):**
 由于 Google 的安全政策，你不能直接使用邮箱的登录密码。
-1. 前往 Google 账号设置：[获取 Gmail 应用专用密码](https://myaccount.google.com/apppasswords) 或直接直接前往网站https://myaccount.google.com/apppasswords
-2. 开启“两步验证 (2-Step Verification)”。
+1. 前往 Google 账号设置：[管理你的账号](https://myaccount.google.com/intro/security)或直接直接前往网站(https://myaccount.google.com/intro/security)开启“两步验证 (2-Step Verification)”。
+2. 前往 Google 账号设置：[获取 Gmail 应用专用密码](https://myaccount.google.com/apppasswords) 或直接直接前往网站(https://myaccount.google.com/apppasswords)
 3. 生成一个 16 位的 App Password，将其复制并粘贴到 `.env` 文件的 `SMTP_PASS` 中。
 
 ### 4. 配置监控课程 (Script Configuration)
@@ -120,16 +120,16 @@ Create a file named `email_info.env` in the root directory of the project and ad
 ```env
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
-SMTP_USER=your_sender_email@gmail.com
-SMTP_PASS=your_app_password
-MAIL_FROM=your_sender_email@gmail.com
-MAIL_TO=your_receiving_email@example.com
+SMTP_USER=[Change to your_sender_email]@gmail.com
+SMTP_PASS=[Change to your_app_password]
+MAIL_FROM=[Change to your_sender_email]@gmail.com
+MAIL_TO=[Change to your_receiving_email]@example.com
 ```
 
 **How to get the Gmail `SMTP_PASS` (App Password):**
 Due to Google's security policies, you cannot use your regular account password.
-1. Go to your Google Account Settings: [App Passwords](https://myaccount.google.com/apppasswords).
-2. Ensure that "2-Step Verification" is turned on.
+1. Go to your Google Account Management: [Manage your account](https://myaccount.google.com/intro/security). Ensure that "Google 2-Step Verification" is turned on.
+2. Go to your Google Account Settings: [App Passwords](https://myaccount.google.com/apppasswords).
 3. Generate a 16-digit App Password. Copy and paste it into the `SMTP_PASS` field in your `.env` file (make sure there are no spaces).
 
 ### 4. Script Configuration
