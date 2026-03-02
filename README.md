@@ -134,7 +134,7 @@ MAIL_TO=[Change to your_receiving_email]@example.com
 Due to Google's security policies, you cannot use your regular account password.
 1. Go to your Google Account Management: [Manage your account](https://myaccount.google.com/intro/security). Ensure that "Google 2-Step Verification" is turned on.
 2. Go to your Google Account Settings: [App Passwords](https://myaccount.google.com/apppasswords).
-3. Generate a 16-digit App Password. Copy and paste it into the `SMTP_PASS` field in your `.env` file (make sure there are no spaces).
+3. Generate a 16-digit App Password. Copy and paste it into the `SMTP_PASS` field in your `.env` file.
 
 ### 4. Script Configuration
 Open the main script file (e.g., `checkOnlineAvailability_Full.js`) and modify the target course information in the top configuration area:
