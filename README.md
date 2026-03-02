@@ -25,7 +25,7 @@
 克隆此仓库并安装必要的依赖包：
 
 ```bash
-git clone [https://github.com/Alan-Huangzy233/SeatCheckingForOsu.git](https://github.com/Alan-Huangzy233/SeatCheckingForOsu.git)
+git clone https://github.com/Alan-Huangzy233/SeatCheckingForOsu.git
 cd SeatCheckingForOsu
 npm install
 ```
@@ -108,7 +108,7 @@ An automated course registration monitoring tool designed for Oregon State Unive
 Clone this repository and install the necessary dependencies:
 
 ```bash
-git clone [https://github.com/Alan-Huangzy233/SeatCheckingForOsu.git](https://github.com/Alan-Huangzy233/SeatCheckingForOsu.git)
+git clone https://github.com/Alan-Huangzy233/SeatCheckingForOsu.git
 cd SeatCheckingForOsu
 npm install
 ```
