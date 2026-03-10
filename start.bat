@@ -40,7 +40,7 @@ if exist "node_modules\" goto MENU
 echo.
 echo [提示] 未检测到运行依赖，正在自动为您安装... 
 echo (Installing required packages...)
-call npm install node-fetch chalk nodemailer dotenv
+call npm install
 echo.
 echo 依赖安装完成！
 

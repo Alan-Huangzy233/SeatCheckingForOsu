@@ -5,20 +5,43 @@ cd "$(dirname "$0")"
 
 echo -e "\033[36m=== OSU 选课监控启动器 / OSU Course Monitor Launcher ===\033[0m"
 
-# ================= 1. 检测 Node.js =================
+# ================= 1. 检测与安装 Node.js =================
+# 首先尝试加载可能已经安装但未激活的 nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
 if ! command -v node &> /dev/null; then
     echo -e "\033[31m[警告] 未检测到 Node.js 环境！(Node.js not found!)\033[0m"
-    echo "Linux 用户请使用包管理器手动安装 Node.js。"
-    echo "例如在 Ubuntu/Debian 系统下，您可以运行以下命令："
-    echo -e "\033[33msudo apt update && sudo apt install nodejs npm\033[0m"
-    echo "安装完成后，请再次运行此脚本。"
-    exit 1
+    echo -e "\033[33m正在为您自动安装 Node.js (通过 nvm)... / Auto-installing Node.js via nvm...\033[0m"
+    
+    # 检测是否安装了 curl
+    if ! command -v curl &> /dev/null; then
+        echo -e "\033[31m[错误] 缺少 'curl' 命令。请先通过包管理器安装 curl (例如 sudo apt install curl)。\033[0m"
+        exit 1
+    fi
+
+    # 下载并安装 nvm
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+    
+    # 动态加载 nvm 到当前会话 (代替重启 shell)
+    \. "$NVM_DIR/nvm.sh"
+    
+    # 下载并安装 Node.js v25
+    nvm install 25
+    
+    # 验证是否安装成功
+    if ! command -v node &> /dev/null; then
+        echo -e "\033[31m[错误] Node.js 自动安装失败，请查阅报错信息手动安装。\033[0m"
+        exit 1
+    fi
+    echo -e "\033[32mNode.js 安装成功！当前版本: $(node -v)\033[0m"
+    echo -e "\033[32mnpm 安装成功！当前版本: $(npm -v)\033[0m"
 fi
 
 # ================= 2. 检测依赖包 =================
 if [ ! -d "node_modules" ]; then
     echo -e "\n\033[33m[提示] 未检测到运行依赖，正在自动为您安装... (Installing required packages...)\033[0m"
-    npm install node-fetch chalk nodemailer dotenv
+    npm install
     echo -e "\033[32m依赖安装完成！\033[0m\n"
 fi
 
