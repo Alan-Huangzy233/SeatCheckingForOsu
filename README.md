@@ -45,7 +45,7 @@ MAIL_TO=[替换为接收提醒的邮箱]@xxx.com
 
 **如何获取 Gmail 的 SMTP_PASS (App Password):**
 由于 Google 的安全政策，你不能直接使用邮箱的登录密码。
-1. 前往 Google 账号设置：[管理你的账号](https://myaccount.google.com/intro/security)或直接直接前往网站(https://myaccount.google.com/intro/security)开启“两步验证 (2-Step Verification)”。
+1. 前往 Google 账号设置：[管理你的账号](https://myaccount.google.com/intro/security)或直接直接前往网站(https://myaccount.google.com/intro/security) 开启“两步验证 (2-Step Verification)”。
 2. 前往 Google 账号设置：[获取 Gmail 应用专用密码](https://myaccount.google.com/apppasswords) 或直接直接前往网站(https://myaccount.google.com/apppasswords)
 3. 生成一个 16 位的 App Password，将其复制并粘贴到 `.env` 文件的 `SMTP_PASS` 中。
 
