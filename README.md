@@ -4,6 +4,9 @@
 
 这是一个专为 Oregon State University (OSU) 学生设计的自动化选课监控工具。该脚本会持续监控指定课程的座位可用性，并在发现有空位且无选课限制时，自动发送邮件提醒，且**无需登录 OSU 账号**！
 
+## 介绍太多看不明白？没关系！Windows用户直接点这个下载，解压，双击start.bat就好！
+[可点击这里下载程序压缩包](https://github.com/Alan-Huangzy233/SeatCheckingForOSU/releases/download/SeatChecking-V1/SeatCheckingForOSU.zip)
+
 ## 核心功能 (Features)
 
 * **小白友好 (Zero-Config):** 告别修改代码！自带交互式命令行向导，启动后根据屏幕提示输入课程号即可，支持无限添加你想监控的课程。
@@ -70,6 +73,9 @@ bash start.sh
 # OSU Course Monitor (English Version)
 
 An automated course registration monitoring tool designed for Oregon State University (OSU) students. This script continuously monitors the seat availability of specified courses and automatically sends an email alert when it finds an open seat with no registration restrictions—**and absolutely no OSU account login required!**
+
+## Too much introduction and can't understand? No problem! Windows users, just click here to download, extract, and double-click start.bat. That's it!
+[You can click here to download the ZIP file](https://github.com/Alan-Huangzy233/SeatCheckingForOSU/releases/download/SeatChecking-V1/SeatCheckingForOSU.zip)
 
 ## Features
 
