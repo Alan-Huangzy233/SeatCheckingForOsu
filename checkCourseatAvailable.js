@@ -4,18 +4,30 @@ import fetch from "node-fetch";
 import chalk from "chalk";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import readline from "readline";
 
 dotenv.config({ path: './email_info.env' });
 
 // ================= 配置区域 =================
 const TERM = "202603";            // 学期 (如 YYYY+Term, eg. 202603)
 
+// 改为 let，等待用户在终端输入
+let COURSES_TO_MONITOR = [];
+
+// 创建命令行交互接口
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+// 将回调形式的 question 封装成 Promise，方便使用 async/await
+const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
 // 多课程监控列表
 // 你可以在这里无限添加你想监控的课程
-const COURSES_TO_MONITOR = [
-    { subject: "CS", courseNumber: "312", checkOnlineOnly: true } // 监控 CS 312 网课
-    //{ subject: "CS", courseNumber: "175", checkOnlineOnly: true },  // 监控 CS 175 网课
-];
+// const COURSES_TO_MONITOR = [
+//     { subject: "CS", courseNumber: "312", checkOnlineOnly: true } // 监控 CS 312 网课
+//     //{ subject: "CS", courseNumber: "175", checkOnlineOnly: true },  // 监控 CS 175 网课
+// ];
 
 // 基础 URL 配置
 const BASE_URL = "https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb";
@@ -273,10 +285,47 @@ async function monitorAllCourses() {
     setTimeout(monitorAllCourses, 15_000);
 }
 
-// ================= 启动程序 =================
+// ================= 交互录入与启动程序 =================
+async function setupCoursesInteractively() {
+    console.log(chalk.cyan(`\n=== 欢迎使用 OSU 选课监控助手 ===`));
+    let addMore = true;
+
+    while (addMore) {
+        console.log(chalk.gray(`\n[录入第 ${COURSES_TO_MONITOR.length + 1} 门课程]`));
+        
+        const subject = await askQuestion(chalk.yellow("请输入 Subject (例如 CS, MTH): "));
+        const courseNumber = await askQuestion(chalk.yellow("请输入 Course Number (例如 175, 312): "));
+        const onlineInput = await askQuestion(chalk.yellow("是否只监控网课？(y/n，直接回车默认 y): "));
+        
+        // 只要用户没有明确输入 'n' 或 'N'，默认就是看网课 (true)
+        const checkOnlineOnly = onlineInput.trim().toLowerCase() !== 'n';
+
+        COURSES_TO_MONITOR.push({
+            subject: subject.trim().toUpperCase(), // 自动转大写，如 cs -> CS
+            courseNumber: courseNumber.trim(),
+            checkOnlineOnly: checkOnlineOnly
+        });
+
+        const moreInput = await askQuestion(chalk.green("\n是否继续添加其他监控课程？(y/n，直接回车默认 n): "));
+        addMore = moreInput.trim().toLowerCase() === 'y';
+    }
+
+    rl.close(); // 录入完毕，关闭输入流
+}
+
 (async () => {
     console.log(chalk.blue(`[${getPacificTime()}] 免责提示：本程序仅用于学习和研究目的，请勿用于任何商业或非法用途。`));
-    console.log(chalk.magenta(`[${getPacificTime()}] 启动多课程监控，共监控 ${COURSES_TO_MONITOR.length} 门课程...`));
+    
+    // 1. 启动交互式引导
+    await setupCoursesInteractively();
+
+    if (COURSES_TO_MONITOR.length === 0) {
+        console.log(chalk.red("未添加任何课程，程序退出。"));
+        return;
+    }
+
+    // 2. 引导结束，正式启动监控
+    console.log(chalk.magenta(`\n[${getPacificTime()}] 录入完毕！启动多课程监控，共监控 ${COURSES_TO_MONITOR.length} 门课程...`));
     await refreshSession();
     await monitorAllCourses(); 
 })();
