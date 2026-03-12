@@ -6,7 +6,7 @@
 
 ---
 
-## 介绍太多看不明白？没关系！Windows用户直接点这个下载，解压，双击win-start.bat就好！
+## 介绍太多看不明白？没关系！直接点这个下载，解压，Windows用户双击win-start.bat就好！Linux用户请往下滑查找使用方法。
 [可点击这里下载程序压缩包](https://github.com/Alan-Huangzy233/SeatCheckingForOSU/releases/download/SeatChecking-V1/SeatCheckingForOSU.zip)
 
 ---
