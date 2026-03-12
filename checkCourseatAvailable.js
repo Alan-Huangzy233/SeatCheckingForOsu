@@ -5,14 +5,13 @@ import chalk from "chalk";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import readline from "readline";
-import fs from "fs"; // 引入文件系统模块，用于读写 .env 文件
+import fs from "fs"; 
 
 dotenv.config({ path: './email_info.env' });
 
-// ================= 配置区域 =================
-const TERM = "202603";            // 学期 (如 YYYY+Term, eg. 202603)
-
-let COURSES_TO_MONITOR = [];
+// ================= 全局变量配置 =================
+let TERM = "";                    // 动态学期 (如 202603)
+let COURSES_TO_MONITOR = [];      // 监控列表
 let enableEmailAlerts = true;     // 全局邮件提醒开关
 
 const BASE_URL = "https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb";
@@ -35,6 +34,41 @@ const rl = readline.createInterface({
 });
 const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
 
+// 新增：支持“返回上一题”的强力提问器
+async function askWithBack(questions) {
+    let answers = [];
+    let i = 0;
+    while (i < questions.length) {
+        let promptText = questions[i].prompt;
+        // 如果不是第一题，提示用户可以输入 '-' 返回
+        if (i > 0) {
+            promptText = chalk.gray("[输入 '-' 返回上一题] ") + promptText;
+        }
+
+        let ans = await askQuestion(promptText);
+        ans = ans.trim();
+
+        // 拦截返回指令
+        if (ans === '-' && i > 0) {
+            i--; // 题号减一，退回上一题
+            continue;
+        } else if (ans === '-' && i === 0) {
+            console.log(chalk.red("当前已经是第一题了！"));
+            continue;
+        }
+
+        // 验证用户输入
+        if (questions[i].validate) {
+            let isValid = questions[i].validate(ans);
+            if (!isValid) continue; // 如果验证失败，重新问当前这题（验证函数内需自行输出报错提醒）
+        }
+
+        answers[i] = ans;
+        i++;
+    }
+    return answers;
+}
+
 // ================= 工具函数 =================
 function getPacificTime() {
     return new Date().toLocaleString("zh-CN", { 
@@ -44,9 +78,8 @@ function getPacificTime() {
 }
 
 // ================= 邮件配置 =================
-let transporter; // 声明在外部，方便重新初始化
+let transporter; 
 
-// 初始化或重新初始化邮件发送器
 function initTransporter() {
     transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
@@ -55,14 +88,11 @@ function initTransporter() {
         auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     });
 }
-
-// 首次启动时初始化
 initTransporter();
 
 const COOLDOWN_MS = 3600_000; 
 const lastMailTSMap = new Map(); 
 
-// 验证邮件配置
 async function verifyEmailConfig() {
     console.log(chalk.blue(`[${getPacificTime()}] 正在验证邮件配置 (email_info.env)...`));
     try {
@@ -74,13 +104,10 @@ async function verifyEmailConfig() {
     }
 }
 
-// 动态创建/覆盖 .env 文件功能
-// 动态创建/覆盖 .env 文件功能
 async function configureEnvFile() {
     console.log(chalk.cyan("\n=== 邮件配置向导 (Email Setup Wizard) ==="));
     console.log(chalk.gray("检测到 email_info.env 缺失或配置错误。现在将引导您进行配置。\n"));
     
-    // ----- 引导用户获取 Gmail 专用密码 -----
     console.log(chalk.bgYellow.black(" 【重要提示：如何获取 Gmail 授权码 (App Password)】 "));
     console.log(chalk.white("由于 Google 的安全政策，您不能直接使用邮箱的日常登录密码。请按以下步骤操作："));
     console.log(chalk.white(`1. 开启“两步验证 (2-Step Verification)”：`));
@@ -88,36 +115,30 @@ async function configureEnvFile() {
     console.log(chalk.white(`2. 获取 Gmail 应用专用密码 (App Password)：`));
     console.log(`   请按住 Ctrl 键点击 (或复制到浏览器): ${chalk.underline.blueBright('https://myaccount.google.com/apppasswords')}`);
     console.log(chalk.white("3. 生成一个 16 位的专用密码，并将其复制。我们稍后会用到它。\n"));
-    // ---------------------------------------
     
-    // 增加默认值逻辑，提升用户体验
-    const hostInput = await askQuestion(chalk.yellow("请输入 SMTP 服务器地址 (直接回车默认 smtp.gmail.com): "));
-    const host = hostInput.trim() || "smtp.gmail.com";
+    let envQs = [
+        { prompt: chalk.yellow("请输入 SMTP 服务器地址 (直接回车默认 smtp.gmail.com): "), validate: () => true },
+        { prompt: chalk.yellow("请输入 SMTP 端口 (直接回车默认 465): "), validate: () => true },
+        { prompt: chalk.yellow("请输入你的发件邮箱地址 (例如 xxx@gmail.com): "), validate: ans => ans.includes("@") ? true : (console.log(chalk.red("请输入有效的邮箱格式！")), false) },
+        { prompt: chalk.yellow("请输入你刚刚获取的 16 位专用密码 (直接粘贴): "), validate: ans => ans.length > 0 ? true : (console.log(chalk.red("密码不能为空！")), false) },
+        { prompt: chalk.yellow("请输入接收提醒的目标邮箱地址 (可以是同一个邮箱): "), validate: ans => ans.includes("@") ? true : (console.log(chalk.red("请输入有效的邮箱格式！")), false) }
+    ];
 
-    const portInput = await askQuestion(chalk.yellow("请输入 SMTP 端口 (直接回车默认 465): "));
-    const port = portInput.trim() || "465";
+    const answers = await askWithBack(envQs);
+    const host = answers[0] || "smtp.gmail.com";
+    const port = answers[1] || "465";
+    const user = answers[2];
+    const pass = answers[3];
+    const mailTo = answers[4];
 
-    const user = await askQuestion(chalk.yellow("请输入你的发件邮箱地址 (例如 xxx@gmail.com): "));
-    const pass = await askQuestion(chalk.yellow("请输入你刚刚获取的 16 位专用密码 (直接粘贴): "));
-    const mailTo = await askQuestion(chalk.yellow("请输入接收提醒的目标邮箱地址 (可以是同一个邮箱): "));
-
-    const envContent = `SMTP_HOST=${host}\nSMTP_PORT=${port}\nSMTP_USER=${user.trim()}\nSMTP_PASS=${pass.trim()}\nMAIL_FROM=${user.trim()}\nMAIL_TO=${mailTo.trim()}\n`;
+    const envContent = `SMTP_HOST=${host}\nSMTP_PORT=${port}\nSMTP_USER=${user}\nSMTP_PASS=${pass}\nMAIL_FROM=${user}\nMAIL_TO=${mailTo}\n`;
 
     try {
-        // 写入本地文件
         fs.writeFileSync('./email_info.env', envContent, { encoding: 'utf8' });
-        
-        // 强制更新当前运行环境的变量
-        process.env.SMTP_HOST = host;
-        process.env.SMTP_PORT = port;
-        process.env.SMTP_USER = user.trim();
-        process.env.SMTP_PASS = pass.trim();
-        process.env.MAIL_FROM = user.trim();
-        process.env.MAIL_TO = mailTo.trim();
-
-        // 重新初始化 transporter
+        process.env.SMTP_HOST = host; process.env.SMTP_PORT = port;
+        process.env.SMTP_USER = user; process.env.SMTP_PASS = pass;
+        process.env.MAIL_FROM = user; process.env.MAIL_TO = mailTo;
         initTransporter();
-        
         console.log(chalk.green("\n设置成功：email_info.env 文件已自动生成并应用！"));
         return true;
     } catch (err) {
@@ -182,11 +203,7 @@ async function resetSearch() {
     try {
         await fetch(RESET_URL, {
             method: "POST",
-            headers: {
-                "Cookie": dynamicCookie, "X-Synchronizer-Token": dynamicToken,
-                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "User-Agent": USER_AGENT, "X-Requested-With": "XMLHttpRequest"
-            },
+            headers: { "Cookie": dynamicCookie, "X-Synchronizer-Token": dynamicToken, "content-type": "application/x-www-form-urlencoded; charset=UTF-8", "User-Agent": USER_AGENT, "X-Requested-With": "XMLHttpRequest" },
             body: ""
         });
     } catch (e) { }
@@ -204,11 +221,7 @@ async function fetchCourseData(subject, courseNumber, isRetry = false) {
 
     const res = await fetch(`${SEARCH_URL}?${params.toString()}`, {
         method: "GET",
-        headers: {
-            "accept": "application/json, text/javascript, */*; q=0.01",
-            "sec-fetch-mode": "cors", "user-agent": USER_AGENT,
-            "x-requested-with": "XMLHttpRequest", "x-synchronizer-token": dynamicToken, "cookie": dynamicCookie
-        }
+        headers: { "accept": "application/json, text/javascript, */*; q=0.01", "sec-fetch-mode": "cors", "user-agent": USER_AGENT, "x-requested-with": "XMLHttpRequest", "x-synchronizer-token": dynamicToken, "cookie": dynamicCookie }
     });
 
     if ((res.status === 401 || res.status === 403 || res.status === 400) && !isRetry) {
@@ -221,15 +234,7 @@ async function fetchCourseData(subject, courseNumber, isRetry = false) {
 async function fetchRestrictions(crn, isRetry = false) {
     const res = await fetch(RESTRICTIONS_URL, {
         method: "POST",
-        headers: {
-            "accept": "text/html, */*; q=0.01", 
-            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "user-agent": USER_AGENT,
-            "x-requested-with": "XMLHttpRequest",
-            "x-synchronizer-token": dynamicToken,
-            "cookie": dynamicCookie,
-            "referer": START_URL 
-        },
+        headers: { "accept": "text/html, */*; q=0.01", "content-type": "application/x-www-form-urlencoded; charset=UTF-8", "user-agent": USER_AGENT, "x-requested-with": "XMLHttpRequest", "x-synchronizer-token": dynamicToken, "cookie": dynamicCookie, "referer": START_URL },
         body: new URLSearchParams({ term: TERM, courseReferenceNumber: crn }).toString()
     });
 
@@ -241,9 +246,15 @@ async function fetchRestrictions(crn, isRetry = false) {
 }
 
 async function checkPerfectSection(course) {
-    const { subject, courseNumber, checkOnlineOnly } = course;
+    const { subject, courseNumber, checkOnlineOnly, monitorMode } = course;
     const modeText = checkOnlineOnly ? "【网课】" : "【线下课】";
-    const courseKey = `${subject}_${courseNumber}_${checkOnlineOnly ? 'Online' : 'InPerson'}`;
+    
+    let typeText = "";
+    if (monitorMode === '1') typeText = "「可用座位(Seat)」";
+    else if (monitorMode === '2') typeText = "「等待队列(Waitlist)」";
+    else typeText = "「座位或Waitlist」";
+
+    const courseKey = `${subject}_${courseNumber}_${checkOnlineOnly ? 'Online' : 'InPerson'}_M${monitorMode}`;
     
     try {
         const json = await fetchCourseData(subject, courseNumber);
@@ -262,12 +273,20 @@ async function checkPerfectSection(course) {
                 if (!sectionNum.startsWith("0")) return false; 
             }
 
-            const hasSeats = c.seatsAvailable > 0 || c.waitAvailable > 0; 
-            return hasSeats;
+            // 新增逻辑：根据用户选择的模式验证是否有空位
+            let meetsCriteria = false;
+            if (monitorMode === '1') {
+                meetsCriteria = c.seatsAvailable > 0;
+            } else if (monitorMode === '2') {
+                meetsCriteria = c.waitAvailable > 0;
+            } else {
+                meetsCriteria = (c.seatsAvailable > 0 || c.waitAvailable > 0);
+            }
+            return meetsCriteria;
         });
 
         if (availableCourses.length === 0) {
-            console.log(chalk.gray(`[${getPacificTime()}] 扫描 ${subject} ${courseNumber} ${modeText}，暂无空位...`));
+            console.log(chalk.gray(`[${getPacificTime()}] 扫描 ${subject} ${courseNumber} ${modeText}${typeText}，暂无空位...`));
             return;
         }
 
@@ -299,7 +318,7 @@ async function checkPerfectSection(course) {
         }
 
         if (perfectCourses.length > 0) {
-            console.log(chalk.green(`[${getPacificTime()}] [${subject} ${courseNumber}] 发现 ${perfectCourses.length} 个【有空位且无任何限制】的完美 ${modeText} 选项！`));
+            console.log(chalk.green(`[${getPacificTime()}] [${subject} ${courseNumber}] 发现 ${perfectCourses.length} 个无限制的 ${modeText}${typeText} 选项！`));
 
             let detailsHtml = perfectCourses.map(c => `
                 <li style="margin-bottom: 10px;">
@@ -311,12 +330,12 @@ async function checkPerfectSection(course) {
                 </li>
             `).join("");
 
-            const mailSubject = `发现无限制且有空位的 ${subject} ${courseNumber} ${modeText}`;
+            const mailSubject = `发现有空位的 ${subject} ${courseNumber} ${modeText}${typeText}`;
             const body = `
-                <h2>${subject} ${courseNumber} 发现了可以立刻选的 ${modeText} 选项</h2>
-                <p>以下 Section 既有空位，也<b>未检测到 DSC 或 Corvallis 本校区限制</b>：</p>
+                <h2>${subject} ${courseNumber} 发现了符合 ${typeText} 要求的 ${modeText} 选项</h2>
+                <p>以下 Section 符合您的要求，且<b>未检测到 DSC 或 Corvallis 本校区限制</b>：</p>
                 <ul>${detailsHtml}</ul>
-                <p>请尽快前往 <a href="https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb/registration#">OSU 选课系统</a> 完成注册！</p>
+                <p>请尽快前往 <a href="https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb/registration#">OSU 选课系统</a> 完成操作！</p>
             `;
             await sendEmailAlert(courseKey, mailSubject, body);
         }
@@ -345,22 +364,76 @@ async function monitorAllCourses() {
 // ================= 交互录入与启动程序 =================
 async function setupCoursesInteractively() {
     console.log(chalk.cyan(`\n=== 欢迎使用 OSU 选课监控助手 ===`));
+
+    // 1. 设置全局动态学期
+    let termQs = [
+        {
+            prompt: chalk.yellow("请输入需要监控的年份 (例如 2026): "),
+            validate: ans => /^\d{4}$/.test(ans) ? true : (console.log(chalk.red("年份格式错误，请输入 4 位纯数字！")), false)
+        },
+        {
+            prompt: chalk.yellow("请选择学期:\n  [1] Fall (秋季)\n  [2] Winter (冬季)\n  [3] Spring (春季)\n  [4] Summer (夏季)\n请输入选项 (1/2/3/4): "),
+            validate: ans => ['1','2','3','4'].includes(ans) ? true : (console.log(chalk.red("无效的选项，请输入 1-4 之间的数字！")), false)
+        }
+    ];
+
+    console.log(chalk.bgCyan.black(" 【第一步：配置监控学期】 "));
+    let termAns = await askWithBack(termQs);
+    const termMap = { '1': '01', '2': '02', '3': '03', '4': '04' };
+    TERM = termAns[0] + termMap[termAns[1]];
+    console.log(chalk.green(`\n✅ 监控学期已锁定为: ${TERM}`));
+
+    // 2. 循环录入课程
+    console.log(chalk.bgCyan.black("\n 【第二步：配置监控课程】 "));
     let addMore = true;
 
     while (addMore) {
-        console.log(chalk.gray(`\n[录入第 ${COURSES_TO_MONITOR.length + 1} 门课程]`));
+        console.log(chalk.bold(`\n[录入第 ${COURSES_TO_MONITOR.length + 1} 门课程]`));
         
-        const subject = await askQuestion(chalk.yellow("请输入 Subject (例如 CS, MTH): "));
-        const courseNumber = await askQuestion(chalk.yellow("请输入 Course Number (例如 123, 456): "));
-        const onlineInput = await askQuestion(chalk.yellow("是否只监控网课？(y/n，直接回车默认 y): "));
-        
-        const checkOnlineOnly = onlineInput.trim().toLowerCase() !== 'n';
+        let courseQs = [
+            {
+                prompt: chalk.yellow("请输入 Subject (例如 CS, MTH): "),
+                // 新增：仅允许大小写字母
+                validate: ans => /^[A-Za-z]+$/.test(ans) ? true : (console.log(chalk.red("科目缩写错误，只能输入纯字母 (不支持空格或数字)！")), false)
+            },
+            {
+                prompt: chalk.yellow("请输入 Course Number (例如 123, 456): "),
+                // 新增：仅允许数字
+                validate: ans => /^\d+$/.test(ans) ? true : (console.log(chalk.red("课程号错误，只能输入纯数字！")), false)
+            },
+            {
+                prompt: chalk.yellow("是否只监控网课？(y/n，直接回车默认 y): "),
+                validate: ans => {
+                    const val = ans.trim().toLowerCase();
+                    // 只允许输入为空（默认），或者 y，或者 n
+                    if (val === '' || val === 'y' || val === 'n') {
+                        return true;
+                    } else {
+                        console.log(chalk.red("无效的输入，请输入 y 或 n，或者直接回车！"));
+                        return false;
+                    }
+                }
+            },
+            {
+                prompt: chalk.yellow("请选择您想要监控的目标：\n  [1] 仅监控可用座位 (Seat > 0)\n  [2] 仅监控等待队列 (Waitlist > 0)\n  [3] 同时监控 Seat 和 Waitlist (只要任一有空即提醒)\n请输入选项 (1/2/3，直接回车默认 3): "),
+                validate: ans => (ans === '' || ['1','2','3'].includes(ans)) ? true : (console.log(chalk.red("无效的选项，请输入 1/2/3 或直接回车！")), false)
+            }
+        ];
+
+        let courseAns = await askWithBack(courseQs);
+        let subject = courseAns[0].toUpperCase();
+        let courseNumber = courseAns[1];
+        let checkOnlineOnly = courseAns[2].toLowerCase() !== 'n'; // 默认 true，除非明确输入 n
+        let monitorMode = courseAns[3] || '3';                    // 默认 3
 
         COURSES_TO_MONITOR.push({
-            subject: subject.trim().toUpperCase(),
-            courseNumber: courseNumber.trim(),
-            checkOnlineOnly: checkOnlineOnly
+            subject: subject,
+            courseNumber: courseNumber,
+            checkOnlineOnly: checkOnlineOnly,
+            monitorMode: monitorMode
         });
+
+        console.log(chalk.green(`✅ 成功添加: ${subject} ${courseNumber}`));
 
         const moreInput = await askQuestion(chalk.green("\n是否继续添加其他监控课程？(y/n，直接回车默认 n): "));
         addMore = moreInput.trim().toLowerCase() === 'y';
@@ -371,47 +444,52 @@ async function setupCoursesInteractively() {
 (async () => {
     console.log(chalk.blue(`[${getPacificTime()}] 免责提示：本程序仅用于学习和研究目的，请勿用于任何商业或非法用途。`));
     
-    // 1. 启动时先验证邮箱配置
+    // 1. 启动时验证邮箱配置
     let emailOk = await verifyEmailConfig();
     
-    // 如果失败，抛出带选项的菜单
     if (!emailOk) {
         console.log(chalk.bgRed.white("\n 警告: 邮件配置验证失败 (可能未配置 email_info.env 或账号密码错误) "));
         console.log("请选择后续操作：");
         console.log("  [1] 在【无邮件提醒】的情况下继续运行 (仅在屏幕显示提示)");
-        console.log("  [2] 现在设置邮件配置 (将引导您创建 .env 文件)");
+        console.log("  [2] 现在设置邮件配置 (将引导您创建/覆盖 .env 文件)");
         console.log("  [3] 退出程序");
         
-        const ans = await askQuestion(chalk.yellow("\n请输入您的选择 (1/2/3): "));
-        
-        if (ans.trim() === '1') {
-            enableEmailAlerts = false;
-            console.log(chalk.magenta(`\n[${getPacificTime()}] 已选择继续运行。程序检测到空位时将【仅在控制台显示】，不会发送邮件。`));
-        } else if (ans.trim() === '2') {
-            // 调用环境向导创建文件
-            const configSuccess = await configureEnvFile();
-            if (configSuccess) {
-                // 再次验证
-                const reVerify = await verifyEmailConfig();
-                if (!reVerify) {
-                    console.log(chalk.red(`\n[${getPacificTime()}] 设置后仍然验证失败，程序将退出，请检查您输入的账号和授权码是否正确。`));
+        while (true) {
+            const ans = await askQuestion(chalk.yellow("\n请输入您的选择 (1/2/3): "));
+            const choice = ans.trim();
+            
+            if (choice === '1') {
+                enableEmailAlerts = false;
+                console.log(chalk.magenta(`\n[${getPacificTime()}] 已选择继续运行。程序检测到空位时将【仅在控制台显示】，不会发送邮件。`));
+                break; // 输入正确，跳出循环继续执行后续代码
+            } else if (choice === '2') {
+                const configSuccess = await configureEnvFile();
+                if (configSuccess) {
+                    const reVerify = await verifyEmailConfig();
+                    if (!reVerify) {
+                        console.log(chalk.red(`\n[${getPacificTime()}] 设置后仍然验证失败，程序将退出，请检查您输入的账号和授权码是否正确。`));
+                        rl.close();
+                        process.exit(1);
+                    }
+                    break; // 设置且验证成功，跳出循环
+                } else {
                     rl.close();
                     process.exit(1);
                 }
-            } else {
+            } else if (choice === '3') {
+                console.log(chalk.red(`\n[${getPacificTime()}] 程序已退出。`));
                 rl.close();
-                process.exit(1);
+                process.exit(0);
+            } else {
+                // 如果输入的不是 1, 2, 3，则报错并让循环重来
+                console.log(chalk.red("无效的选项，请输入 1, 2 或 3！"));
             }
-        } else {
-            console.log(chalk.red(`\n[${getPacificTime()}] 程序已退出。`));
-            rl.close();
-            process.exit(0);
         }
     }
 
-    // 2. 启动交互式引导录入课程
+    // 2. 启动交互式引导
     await setupCoursesInteractively();
-    rl.close(); // 录入完毕，关闭输入流
+    rl.close(); 
 
     if (COURSES_TO_MONITOR.length === 0) {
         console.log(chalk.red("未添加任何课程，程序退出。"));
